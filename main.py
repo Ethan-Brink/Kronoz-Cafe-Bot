@@ -1,10 +1,10 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 import asyncio
 import random
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 # ======================================================
 # ⚙️ CONFIG
@@ -12,6 +12,7 @@ from datetime import timedelta
 GUILD_ID = 1441171105397346508
 COUNTING_CHANNEL_ID = 1441204274964201664
 MOD_LOG_CHANNEL_ID = 1455167564534513836
+ANNOUNCEMENTS_CHANNEL_ID = 1234567890  # ⚠️ REPLACE WITH YOUR ANNOUNCEMENTS CHANNEL ID
 
 # ======================================================
 # 🔧 INTENTS
@@ -27,11 +28,13 @@ intents.guilds = True
 class KronozCafe(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
+        self.last_countdown_message = None
 
     async def setup_hook(self):
         guild = discord.Object(id=GUILD_ID)
         await self.tree.sync(guild=guild)
         print("✅ Commands synced")
+        new_year_countdown.start()
 
     async def on_ready(self):
         print(f"☕ Kronoz Cafe online as {self.user}")
@@ -47,6 +50,58 @@ class KronozCafe(commands.Bot):
 
 bot = KronozCafe()
 GUILD = discord.Object(id=GUILD_ID)
+
+# ======================================================
+# 🎆 NEW YEAR COUNTDOWN
+# ======================================================
+@tasks.loop(minutes=1)
+async def new_year_countdown():
+    channel = bot.get_channel(ANNOUNCEMENTS_CHANNEL_ID)
+    if not channel:
+        return
+
+    now = datetime.now(timezone.utc)
+    
+    # New Year 2026 in UTC (midnight January 1, 2026)
+    new_year = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    
+    # If we're past New Year, stop the task
+    if now >= new_year:
+        await channel.send("🎊 **HAPPY NEW YEAR 2026!** 🎉")
+        new_year_countdown.stop()
+        return
+    
+    time_left = new_year - now
+    hours_left = int(time_left.total_seconds() / 3600)
+    
+    # Only send on major hour marks (24h, 12h, 6h, 3h, 2h, 1h)
+    major_hours = [24, 12, 6, 3, 2, 1]
+    
+    # Check if we're within a minute of a major hour
+    minutes_left = int(time_left.total_seconds() / 60)
+    if hours_left in major_hours and minutes_left % 60 == 0:
+        # Delete previous countdown message
+        if bot.last_countdown_message:
+            try:
+                await bot.last_countdown_message.delete()
+            except:
+                pass
+        
+        # Create Discord timestamp (shows in user's local timezone)
+        timestamp = f"<t:{int(new_year.timestamp())}:R>"
+        
+        embed = discord.Embed(
+            title="🎆 New Year Countdown",
+            description=f"**{hours_left} hours** until 2026!\n\nNew Year arrives {timestamp}",
+            color=discord.Color.gold()
+        )
+        embed.set_footer(text="The timestamp shows in your local timezone!")
+        
+        bot.last_countdown_message = await channel.send(embed=embed)
+
+@new_year_countdown.before_loop
+async def before_countdown():
+    await bot.wait_until_ready()
 
 # ======================================================
 # ❌ ERROR HANDLING
