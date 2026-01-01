@@ -5,6 +5,7 @@ import asyncio
 import random
 import os
 from datetime import datetime, timedelta, timezone
+import json
 
 # ======================================================
 # ⚙️ CONFIG
@@ -12,7 +13,8 @@ from datetime import datetime, timedelta, timezone
 GUILD_ID = 1441171105397346508
 COUNTING_CHANNEL_ID = 1441204274964201664
 MOD_LOG_CHANNEL_ID = 1455167564534513836
-ANNOUNCEMENTS_CHANNEL_ID = 1441171167263068301  # ⚠️ REPLACE WITH YOUR ANNOUNCEMENTS CHANNEL ID
+ANNOUNCEMENTS_CHANNEL_ID = 1441171167263068301
+MAX_WARNINGS = 3
 
 # ======================================================
 # 🔧 INTENTS
@@ -21,6 +23,24 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 intents.guilds = True
+
+# ======================================================
+# 📊 WARNING STORAGE
+# ======================================================
+warnings_file = "warnings.json"
+
+def load_warnings():
+    try:
+        with open(warnings_file, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+def save_warnings(data):
+    with open(warnings_file, 'w') as f:
+        json.dump(data, f, indent=4)
+
+warnings_data = load_warnings()
 
 # ======================================================
 # 🤖 BOT
@@ -61,11 +81,8 @@ async def new_year_countdown():
         return
 
     now = datetime.now(timezone.utc)
-    
-    # New Year 2026 in UTC (midnight January 1, 2026)
     new_year = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     
-    # If we're past New Year, stop the task
     if now >= new_year:
         await channel.send("🎊 **HAPPY NEW YEAR 2026!** 🎉")
         new_year_countdown.stop()
@@ -73,30 +90,23 @@ async def new_year_countdown():
     
     time_left = new_year - now
     hours_left = int(time_left.total_seconds() / 3600)
-    
-    # Only send on major hour marks (24h, 12h, 6h, 3h, 2h, 1h)
     major_hours = [24, 12, 6, 3, 2, 1]
-    
-    # Check if we're within a minute of a major hour
     minutes_left = int(time_left.total_seconds() / 60)
+    
     if hours_left in major_hours and minutes_left % 60 == 0:
-        # Delete previous countdown message
         if bot.last_countdown_message:
             try:
                 await bot.last_countdown_message.delete()
             except:
                 pass
         
-        # Create Discord timestamp (shows in user's local timezone)
         timestamp = f"<t:{int(new_year.timestamp())}:R>"
-        
         embed = discord.Embed(
             title="🎆 New Year Countdown",
             description=f"**{hours_left} hours** until 2026!\n\nNew Year arrives {timestamp}",
             color=discord.Color.gold()
         )
         embed.set_footer(text="The timestamp shows in your local timezone!")
-        
         bot.last_countdown_message = await channel.send(embed=embed)
 
 @new_year_countdown.before_loop
@@ -121,42 +131,169 @@ current_count = 0
 
 async def handle_counting(message: discord.Message):
     global current_count
-
     try:
         number = int(message.content)
-
         if number == current_count + 1:
             current_count += 1
             await message.add_reaction("✅")
         else:
             await message.delete()
-            await message.channel.send(
-                "❌ Wrong number! Counting reset to **0**.",
-                delete_after=3
-            )
+            await message.channel.send("❌ Wrong number! Counting reset to **0**.", delete_after=3)
             current_count = 0
-
     except ValueError:
         await message.delete()
 
 # ======================================================
-# 🛡 MODERATION
+# 🛡 MODERATION - WARNING SYSTEM
 # ======================================================
 @bot.tree.command(name="warn", description="Warn a member", guild=GUILD)
 @app_commands.checks.has_permissions(moderate_members=True)
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
-    await interaction.response.send_message(
-        f"⚠️ **Warning Issued**\nMember: {member.mention}\nReason: {reason}"
+    global warnings_data
+    
+    member_id = str(member.id)
+    
+    # Initialize member's warning list if not exists
+    if member_id not in warnings_data:
+        warnings_data[member_id] = []
+    
+    # Check if member already has 3 warnings
+    if len(warnings_data[member_id]) >= MAX_WARNINGS:
+        await interaction.response.send_message(
+            f"❌ **Cannot issue warning!**\n"
+            f"{member.mention} already has **{MAX_WARNINGS} warnings** (maximum reached).\n"
+            f"Consider taking further action instead of issuing more warnings.",
+            ephemeral=True
+        )
+        return
+    
+    # Add the warning
+    warning_entry = {
+        "reason": reason,
+        "issued_by": interaction.user.id,
+        "issued_by_name": str(interaction.user),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "warning_number": len(warnings_data[member_id]) + 1
+    }
+    
+    warnings_data[member_id].append(warning_entry)
+    save_warnings(warnings_data)
+    
+    warning_count = len(warnings_data[member_id])
+    
+    # Create response embed
+    embed = discord.Embed(
+        title="⚠️ Warning Issued",
+        color=discord.Color.orange() if warning_count < MAX_WARNINGS else discord.Color.red()
     )
+    embed.add_field(name="Member", value=member.mention, inline=True)
+    embed.add_field(name="Warning #", value=f"{warning_count}/{MAX_WARNINGS}", inline=True)
+    embed.add_field(name="Reason", value=reason, inline=False)
+    embed.set_footer(text=f"Issued by {interaction.user}")
+    
+    # Add warning level message
+    if warning_count == MAX_WARNINGS:
+        embed.add_field(
+            name="⚠️ MAXIMUM WARNINGS REACHED",
+            value=f"{member.mention} has reached the maximum of {MAX_WARNINGS} warnings!",
+            inline=False
+        )
+    
+    await interaction.response.send_message(embed=embed)
+    
+    # Log to mod channel
+    mod_channel = bot.get_channel(MOD_LOG_CHANNEL_ID)
+    if mod_channel:
+        log_embed = discord.Embed(
+            title="📋 Warning Logged",
+            color=discord.Color.orange(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        log_embed.add_field(name="Member", value=f"{member.mention} ({member.id})", inline=False)
+        log_embed.add_field(name="Warning Count", value=f"{warning_count}/{MAX_WARNINGS}", inline=True)
+        log_embed.add_field(name="Issued By", value=interaction.user.mention, inline=True)
+        log_embed.add_field(name="Reason", value=reason, inline=False)
+        await mod_channel.send(embed=log_embed)
+
+@bot.tree.command(name="warnings", description="View warning history for a member", guild=GUILD)
+@app_commands.checks.has_permissions(moderate_members=True)
+async def warnings(interaction: discord.Interaction, member: discord.Member):
+    member_id = str(member.id)
+    
+    if member_id not in warnings_data or not warnings_data[member_id]:
+        await interaction.response.send_message(
+            f"✅ {member.mention} has no warnings.",
+            ephemeral=True
+        )
+        return
+    
+    user_warnings = warnings_data[member_id]
+    
+    embed = discord.Embed(
+        title=f"⚠️ Warning History for {member.display_name}",
+        description=f"Total Warnings: **{len(user_warnings)}/{MAX_WARNINGS}**",
+        color=discord.Color.red() if len(user_warnings) >= MAX_WARNINGS else discord.Color.orange()
+    )
+    
+    for i, warning in enumerate(user_warnings, 1):
+        issued_date = datetime.fromisoformat(warning['timestamp'])
+        timestamp = f"<t:{int(issued_date.timestamp())}:R>"
+        
+        embed.add_field(
+            name=f"Warning #{i}",
+            value=(
+                f"**Reason:** {warning['reason']}\n"
+                f"**Issued by:** {warning['issued_by_name']}\n"
+                f"**Date:** {timestamp}"
+            ),
+            inline=False
+        )
+    
+    if len(user_warnings) >= MAX_WARNINGS:
+        embed.set_footer(text="⚠️ This user has reached the maximum warning limit")
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="clearwarnings", description="Clear all warnings for a member", guild=GUILD)
+@app_commands.checks.has_permissions(administrator=True)
+async def clearwarnings(interaction: discord.Interaction, member: discord.Member):
+    global warnings_data
+    
+    member_id = str(member.id)
+    
+    if member_id not in warnings_data or not warnings_data[member_id]:
+        await interaction.response.send_message(
+            f"{member.mention} has no warnings to clear.",
+            ephemeral=True
+        )
+        return
+    
+    warning_count = len(warnings_data[member_id])
+    warnings_data[member_id] = []
+    save_warnings(warnings_data)
+    
+    await interaction.response.send_message(
+        f"✅ Cleared **{warning_count}** warning(s) for {member.mention}"
+    )
+    
+    # Log to mod channel
+    mod_channel = bot.get_channel(MOD_LOG_CHANNEL_ID)
+    if mod_channel:
+        log_embed = discord.Embed(
+            title="🧹 Warnings Cleared",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        log_embed.add_field(name="Member", value=f"{member.mention} ({member.id})", inline=False)
+        log_embed.add_field(name="Warnings Cleared", value=str(warning_count), inline=True)
+        log_embed.add_field(name="Cleared By", value=interaction.user.mention, inline=True)
+        await mod_channel.send(embed=log_embed)
 
 @bot.tree.command(name="clear", description="Clear messages", guild=GUILD)
 @app_commands.checks.has_permissions(manage_messages=True)
 async def clear(interaction: discord.Interaction, amount: int):
     await interaction.channel.purge(limit=amount)
-    await interaction.response.send_message(
-        f"🧹 Cleared {amount} messages.",
-        ephemeral=True
-    )
+    await interaction.response.send_message(f"🧹 Cleared {amount} messages.", ephemeral=True)
 
 # ======================================================
 # 🎟 TICKETS
@@ -203,10 +340,7 @@ async def create_ticket(interaction, ticket_type):
         f"Staff will assist you shortly."
     )
 
-    await interaction.response.send_message(
-        f"✅ Ticket created: {channel.mention}",
-        ephemeral=True
-    )
+    await interaction.response.send_message(f"✅ Ticket created: {channel.mention}", ephemeral=True)
 
 @bot.tree.command(name="ticket", description="Open a ticket", guild=GUILD)
 async def ticket(interaction: discord.Interaction):
@@ -227,7 +361,6 @@ async def closeticket(interaction: discord.Interaction):
     if not interaction.channel.name.startswith("ticket-"):
         await interaction.response.send_message("❌ This is not a ticket.", ephemeral=True)
         return
-
     await interaction.response.send_message("🔒 Closing ticket...")
     await asyncio.sleep(2)
     await interaction.channel.delete()
@@ -269,16 +402,12 @@ async def endshift(interaction: discord.Interaction):
 
 @bot.tree.command(name="loa", description="Request leave of absence", guild=GUILD)
 async def loa(interaction: discord.Interaction, reason: str):
-    await interaction.response.send_message(
-        f"📆 **LOA Request Submitted**\nReason: {reason}"
-    )
+    await interaction.response.send_message(f"📆 **LOA Request Submitted**\nReason: {reason}")
 
 @bot.tree.command(name="serverinfo", description="Server info", guild=GUILD)
 async def serverinfo(interaction: discord.Interaction):
     guild = interaction.guild
-    await interaction.response.send_message(
-        f"🏠 **{guild.name}**\nMembers: {guild.member_count}"
-    )
+    await interaction.response.send_message(f"🏠 **{guild.name}**\nMembers: {guild.member_count}")
 
 @bot.tree.command(name="botstatus", description="Bot status", guild=GUILD)
 async def botstatus(interaction: discord.Interaction):
