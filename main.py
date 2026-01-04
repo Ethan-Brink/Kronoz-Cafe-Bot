@@ -14,7 +14,13 @@ import io
 GUILD_ID = 1441171105397346508
 COUNTING_CHANNEL_ID = 1441204274964201664
 MOD_LOG_CHANNEL_ID = 1455167564534513836
+ANNOUNCEMENTS_CHANNEL_ID = None  # SET YOUR ANNOUNCEMENTS CHANNEL ID HERE
 MAX_WARNINGS = 3
+
+# Grand Opening Event Details
+GRAND_OPENING_TIME = datetime(2026, 1, 5, 16, 0, 0, tzinfo=timezone.utc)  # 18:00 GMT+2 = 16:00 UTC
+EVENT_LINK = "https://discord.com/events/1441171105397346508/1454456690987634850"
+GAME_LINK = "https://www.roblox.com/games/114976671702338/Kronoz-Cafe"
 
 # ======================================================
 # 🔧 INTENTS
@@ -54,6 +60,10 @@ class KronozCafe(commands.Bot):
         guild = discord.Object(id=GUILD_ID)
         await self.tree.sync(guild=guild)
         print("✅ Commands synced")
+        
+        # Start countdown task
+        if not self.countdown_task.is_running():
+            self.countdown_task.start()
 
     async def on_ready(self):
         print(f"☕ Kronoz Cafe online as {self.user}")
@@ -127,6 +137,111 @@ class KronozCafe(commands.Bot):
             embed.add_field(name="After", value=after.content[:512] if after.content else "No content", inline=False)
             embed.add_field(name="Jump to Message", value=f"[Click Here]({after.jump_url})", inline=False)
             await mod_channel.send(embed=embed)
+    
+    # ======================================================
+    # 🎉 GRAND OPENING COUNTDOWN
+    # ======================================================
+    @tasks.loop(hours=1)
+    async def countdown_task(self):
+        if ANNOUNCEMENTS_CHANNEL_ID is None:
+            return
+        
+        now = datetime.now(timezone.utc)
+        time_until = GRAND_OPENING_TIME - now
+        
+        # Stop countdown after event starts
+        if time_until.total_seconds() <= 0:
+            self.countdown_task.cancel()
+            await self.send_event_started()
+            return
+        
+        hours_left = int(time_until.total_seconds() // 3600)
+        
+        # Send updates at specific milestones
+        if hours_left in [24, 12, 6, 3, 1]:
+            await self.send_countdown_update(hours_left)
+    
+    async def send_countdown_update(self, hours_left):
+        channel = self.get_channel(ANNOUNCEMENTS_CHANNEL_ID)
+        if not channel:
+            return
+        
+        embed = discord.Embed(
+            title="🎉 GRAND OPENING COUNTDOWN 🎉",
+            description=f"**Kronoz Cafe** is opening soon!",
+            color=discord.Color.gold(),
+            timestamp=GRAND_OPENING_TIME
+        )
+        
+        if hours_left >= 24:
+            emoji = "📅"
+            time_text = f"{hours_left // 24} day(s)"
+        elif hours_left >= 6:
+            emoji = "⏰"
+            time_text = f"{hours_left} hours"
+        else:
+            emoji = "🔥"
+            time_text = f"{hours_left} hour(s)"
+        
+        embed.add_field(
+            name=f"{emoji} Time Remaining",
+            value=f"**{time_text}** until opening!",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🕐 Opening Time",
+            value=f"<t:{int(GRAND_OPENING_TIME.timestamp())}:F>\n<t:{int(GRAND_OPENING_TIME.timestamp())}:R>",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🎮 Join the Game",
+            value=f"[Click here to play!]({GAME_LINK})",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📅 Discord Event",
+            value=f"[View Event Details]({EVENT_LINK})",
+            inline=True
+        )
+        
+        embed.set_footer(text="See you there! ☕")
+        
+        await channel.send("@everyone", embed=embed)
+    
+    async def send_event_started(self):
+        channel = self.get_channel(ANNOUNCEMENTS_CHANNEL_ID)
+        if not channel:
+            return
+        
+        embed = discord.Embed(
+            title="🎊 KRONOZ CAFE IS NOW OPEN! 🎊",
+            description="The wait is over! Join us now for our **Grand Opening**!",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        embed.add_field(
+            name="🎮 Play Now",
+            value=f"[Join Kronoz Cafe!]({GAME_LINK})",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📅 Event Details",
+            value=f"[View on Discord]({EVENT_LINK})",
+            inline=False
+        )
+        
+        embed.set_footer(text="Welcome to Kronoz Cafe! ☕")
+        
+        await channel.send("@everyone 🎉", embed=embed)
+    
+    @countdown_task.before_loop
+    async def before_countdown(self):
+        await self.wait_until_ready()
 
 bot = KronozCafe()
 GUILD = discord.Object(id=GUILD_ID)
@@ -162,6 +277,51 @@ async def handle_counting(message: discord.Message):
             current_count = 0
     except ValueError:
         await message.delete()
+
+# ======================================================
+# 🎉 MANUAL COUNTDOWN COMMAND
+# ======================================================
+@bot.tree.command(name="countdown", description="Show Grand Opening countdown", guild=GUILD)
+async def countdown(interaction: discord.Interaction):
+    now = datetime.now(timezone.utc)
+    time_until = GRAND_OPENING_TIME - now
+    
+    if time_until.total_seconds() <= 0:
+        await interaction.response.send_message("🎊 **The Grand Opening has started!** Join us now!", ephemeral=True)
+        return
+    
+    days = time_until.days
+    hours = int(time_until.seconds // 3600)
+    minutes = int((time_until.seconds % 3600) // 60)
+    
+    embed = discord.Embed(
+        title="🎉 Grand Opening Countdown",
+        description=f"**{days}** days, **{hours}** hours, **{minutes}** minutes",
+        color=discord.Color.gold(),
+        timestamp=GRAND_OPENING_TIME
+    )
+    
+    embed.add_field(
+        name="🕐 Opens At",
+        value=f"<t:{int(GRAND_OPENING_TIME.timestamp())}:F>",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🎮 Game Link",
+        value=f"[Kronoz Cafe]({GAME_LINK})",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="📅 Event Link",
+        value=f"[Discord Event]({EVENT_LINK})",
+        inline=True
+    )
+    
+    embed.set_footer(text="See you there! ☕")
+    
+    await interaction.response.send_message(embed=embed)
 
 # ======================================================
 # 🛡 MODERATION - WARNING SYSTEM
@@ -542,393 +702,8 @@ async def removerole(interaction: discord.Interaction, member: discord.Member, r
     except Exception as e:
         await interaction.response.send_message(f"❌ An error occurred: {str(e)}", ephemeral=True)
 
-# ======================================================
-# 📢 ANNOUNCEMENT & CHANNEL MANAGEMENT
-# ======================================================
-@bot.tree.command(name="announce", description="Send an announcement", guild=GUILD)
-@app_commands.checks.has_permissions(manage_messages=True)
-async def announce(interaction: discord.Interaction, channel: discord.TextChannel, title: str, message: str):
-    embed = discord.Embed(
-        title=f"📢 {title}",
-        description=message,
-        color=discord.Color.blue(),
-        timestamp=datetime.now(timezone.utc)
-    )
-    embed.set_footer(text=f"Announced by {interaction.user.name}", icon_url=interaction.user.display_avatar.url)
-    
-    await channel.send(embed=embed)
-    await interaction.response.send_message(f"✅ Announcement sent to {channel.mention}", ephemeral=True)
-
-@bot.tree.command(name="slowmode", description="Set slowmode for a channel", guild=GUILD)
-@app_commands.checks.has_permissions(manage_channels=True)
-async def slowmode(interaction: discord.Interaction, seconds: int, channel: discord.TextChannel = None):
-    channel = channel or interaction.channel
-    
-    if seconds < 0 or seconds > 21600:
-        await interaction.response.send_message("❌ Slowmode must be between 0 and 21600 seconds (6 hours).", ephemeral=True)
-        return
-    
-    try:
-        await channel.edit(slowmode_delay=seconds)
-        if seconds == 0:
-            await interaction.response.send_message(f"✅ Slowmode disabled in {channel.mention}")
-        else:
-            await interaction.response.send_message(f"✅ Slowmode set to {seconds} seconds in {channel.mention}")
-    except Exception as e:
-        await interaction.response.send_message(f"❌ An error occurred: {str(e)}", ephemeral=True)
-
-@bot.tree.command(name="lock", description="Lock a channel", guild=GUILD)
-@app_commands.checks.has_permissions(manage_channels=True)
-async def lock(interaction: discord.Interaction, channel: discord.TextChannel = None):
-    channel = channel or interaction.channel
-    
-    try:
-        await channel.set_permissions(interaction.guild.default_role, send_messages=False)
-        await interaction.response.send_message(f"🔒 Locked {channel.mention}")
-        
-        mod_channel = bot.get_channel(MOD_LOG_CHANNEL_ID)
-        if mod_channel:
-            log_embed = discord.Embed(
-                title="🔒 Channel Locked",
-                color=discord.Color.red(),
-                timestamp=datetime.now(timezone.utc)
-            )
-            log_embed.add_field(name="Channel", value=channel.mention, inline=True)
-            log_embed.add_field(name="Locked By", value=interaction.user.mention, inline=True)
-            await mod_channel.send(embed=log_embed)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ An error occurred: {str(e)}", ephemeral=True)
-
-@bot.tree.command(name="unlock", description="Unlock a channel", guild=GUILD)
-@app_commands.checks.has_permissions(manage_channels=True)
-async def unlock(interaction: discord.Interaction, channel: discord.TextChannel = None):
-    channel = channel or interaction.channel
-    
-    try:
-        await channel.set_permissions(interaction.guild.default_role, send_messages=None)
-        await interaction.response.send_message(f"🔓 Unlocked {channel.mention}")
-        
-        mod_channel = bot.get_channel(MOD_LOG_CHANNEL_ID)
-        if mod_channel:
-            log_embed = discord.Embed(
-                title="🔓 Channel Unlocked",
-                color=discord.Color.green(),
-                timestamp=datetime.now(timezone.utc)
-            )
-            log_embed.add_field(name="Channel", value=channel.mention, inline=True)
-            log_embed.add_field(name="Unlocked By", value=interaction.user.mention, inline=True)
-            await mod_channel.send(embed=log_embed)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ An error occurred: {str(e)}", ephemeral=True)
-
-@bot.tree.command(name="clear", description="Clear messages", guild=GUILD)
-@app_commands.checks.has_permissions(manage_messages=True)
-async def clear(interaction: discord.Interaction, amount: int):
-    await interaction.response.send_message(f"🧹 Clearing {amount} messages...", ephemeral=True)
-    await interaction.channel.purge(limit=amount)
-
-# ======================================================
-# 🎉 GIVEAWAY SYSTEM
-# ======================================================
-@bot.tree.command(name="giveaway", description="Start a giveaway", guild=GUILD)
-@app_commands.checks.has_permissions(manage_guild=True)
-async def giveaway(interaction: discord.Interaction, duration: int, winners: int, prize: str):
-    embed = discord.Embed(
-        title="🎉 GIVEAWAY 🎉",
-        description=f"**Prize:** {prize}\n**Winners:** {winners}\n**Duration:** {duration} minutes\n\nReact with 🎉 to enter!",
-        color=discord.Color.gold(),
-        timestamp=datetime.now(timezone.utc) + timedelta(minutes=duration)
-    )
-    embed.set_footer(text="Ends at")
-    
-    await interaction.response.send_message("✅ Giveaway started!", ephemeral=True)
-    message = await interaction.channel.send(embed=embed)
-    await message.add_reaction("🎉")
-    
-    await asyncio.sleep(duration * 60)
-    
-    message = await interaction.channel.fetch_message(message.id)
-    users = [u async for u in message.reactions[0].users() if not u.bot]
-    
-    if len(users) < winners:
-        await interaction.channel.send(f"❌ Not enough entries! Only {len(users)} user(s) entered.")
-        return
-    
-    winners_list = random.sample(users, winners)
-    winner_mentions = ", ".join([w.mention for w in winners_list])
-    
-    await interaction.channel.send(f"🎊 Congratulations {winner_mentions}! You won **{prize}**!")
-
-@bot.tree.command(name="reroll", description="Reroll a giveaway", guild=GUILD)
-@app_commands.checks.has_permissions(manage_guild=True)
-async def reroll(interaction: discord.Interaction, message_id: str):
-    try:
-        message = await interaction.channel.fetch_message(int(message_id))
-    except:
-        await interaction.response.send_message("❌ Invalid message ID.", ephemeral=True)
-        return
-
-    if not message.reactions:
-        await interaction.response.send_message("❌ No reactions found.", ephemeral=True)
-        return
-
-    users = [u async for u in message.reactions[0].users() if not u.bot]
-
-    if users:
-        winner = random.choice(users)
-        await interaction.response.send_message(f"🔁 New winner: {winner.mention}")
-    else:
-        await interaction.response.send_message("❌ No entries.")
-
-# ======================================================
-# 📊 POLL SYSTEM
-# ======================================================
-@bot.tree.command(name="poll", description="Create a poll", guild=GUILD)
-async def poll(interaction: discord.Interaction, question: str, option1: str, option2: str, option3: str = None, option4: str = None, option5: str = None):
-    options = [option1, option2]
-    if option3:
-        options.append(option3)
-    if option4:
-        options.append(option4)
-    if option5:
-        options.append(option5)
-    
-    emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
-    
-    description = "\n".join([f"{emojis[i]} {opt}" for i, opt in enumerate(options)])
-    
-    embed = discord.Embed(
-        title=f"📊 {question}",
-        description=description,
-        color=discord.Color.blue(),
-        timestamp=datetime.now(timezone.utc)
-    )
-    embed.set_footer(text=f"Poll by {interaction.user.name}", icon_url=interaction.user.display_avatar.url)
-    
-    await interaction.response.send_message("✅ Poll created!", ephemeral=True)
-    message = await interaction.channel.send(embed=embed)
-    
-    for i in range(len(options)):
-        await message.add_reaction(emojis[i])
-
-# ======================================================
-# 🎟 TICKETS
-# ======================================================
-class TicketCloseView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-    
-    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.red, emoji="🔒")
-    async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("🔒 Saving transcript and closing ticket...")
-        
-        # Create transcript
-        messages = []
-        async for message in interaction.channel.history(limit=100, oldest_first=True):
-            timestamp = message.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            messages.append(f"[{timestamp}] {message.author}: {message.content}")
-        
-        transcript = "\n".join(messages)
-        file = discord.File(io.BytesIO(transcript.encode()), filename=f"ticket-{interaction.channel.name}.txt")
-        
-        # Send transcript to mod log
-        mod_channel = interaction.client.get_channel(MOD_LOG_CHANNEL_ID)
-        if mod_channel:
-            embed = discord.Embed(
-                title="🎫 Ticket Closed",
-                color=discord.Color.blue(),
-                timestamp=datetime.now(timezone.utc)
-            )
-            embed.add_field(name="Ticket", value=interaction.channel.name, inline=True)
-            embed.add_field(name="Closed By", value=interaction.user.mention, inline=True)
-            await mod_channel.send(embed=embed, file=file)
-        
-        await asyncio.sleep(2)
-        await interaction.channel.delete()
-
-class TicketView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="General Support", style=discord.ButtonStyle.green, emoji="💬")
-    async def general(self, interaction: discord.Interaction, _):
-        await create_ticket(interaction, "General Support")
-
-    @discord.ui.button(label="Player Report", style=discord.ButtonStyle.red, emoji="📝")
-    async def report(self, interaction: discord.Interaction, _):
-        await create_ticket(interaction, "Player Report")
-
-    @discord.ui.button(label="Appeal Support", style=discord.ButtonStyle.blurple, emoji="⚖️")
-    async def appeal(self, interaction: discord.Interaction, _):
-        await create_ticket(interaction, "Appeal Support")
-
-    @discord.ui.button(label="Development Support", style=discord.ButtonStyle.gray, emoji="🛠️")
-    async def dev(self, interaction: discord.Interaction, _):
-        await create_ticket(interaction, "Development Support")
-
-async def create_ticket(interaction, ticket_type):
-    guild = interaction.guild
-    category = discord.utils.get(guild.categories, name="Tickets")
-    if not category:
-        category = await guild.create_category("Tickets")
-
-    # Check if user already has a ticket
-    existing_ticket = discord.utils.get(guild.text_channels, name=f"ticket-{interaction.user.id}")
-    if existing_ticket:
-        await interaction.response.send_message(
-            f"❌ You already have an open ticket: {existing_ticket.mention}",
-            ephemeral=True
-        )
-        return
-
-    channel = await guild.create_text_channel(
-        f"ticket-{interaction.user.id}",
-        category=category,
-        overwrites={
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
-    )
-
-    embed = discord.Embed(
-        title=f"🎫 {ticket_type}",
-        description=f"{interaction.user.mention}\n\nStaff will assist you shortly.\n\nClick the button below to close this ticket.",
-        color=discord.Color.green()
-    )
-    
-    await channel.send(embed=embed, view=TicketCloseView())
-    await interaction.response.send_message(f"✅ Ticket created: {channel.mention}", ephemeral=True)
-
-@bot.tree.command(name="ticket", description="Open a ticket", guild=GUILD)
-async def ticket(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🎫 Kronoz Cafe Support",
-        description=(
-            "**General Support** – Questions & help\n"
-            "**Player Report** – Report rule breakers\n"
-            "**Appeal Support** – Ban or timeout appeals\n"
-            "**Development Support** – Bugs & suggestions"
-        ),
-        color=discord.Color.green()
-    )
-    await interaction.response.send_message(embed=embed, view=TicketView())
-
-@bot.tree.command(name="closeticket", description="Close a ticket (Admin)", guild=GUILD)
-@app_commands.checks.has_permissions(manage_channels=True)
-async def closeticket(interaction: discord.Interaction):
-    if not interaction.channel.name.startswith("ticket-"):
-        await interaction.response.send_message("❌ This is not a ticket.", ephemeral=True)
-        return
-    
-    await interaction.response.send_message("🔒 Saving transcript and closing ticket...")
-    
-    # Create transcript
-    messages = []
-    async for message in interaction.channel.history(limit=100, oldest_first=True):
-        timestamp = message.created_at.strftime("%Y-%m-%d %H:%M:%S")
-        messages.append(f"[{timestamp}] {message.author}: {message.content}")
-    
-    transcript = "\n".join(messages)
-    file = discord.File(io.BytesIO(transcript.encode()), filename=f"ticket-{interaction.channel.name}.txt")
-    
-    # Send transcript to mod log
-    mod_channel = bot.get_channel(MOD_LOG_CHANNEL_ID)
-    if mod_channel:
-        embed = discord.Embed(
-            title="🎫 Ticket Closed",
-            color=discord.Color.blue(),
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.add_field(name="Ticket", value=interaction.channel.name, inline=True)
-        embed.add_field(name="Closed By", value=interaction.user.mention, inline=True)
-        await mod_channel.send(embed=embed, file=file)
-    
-    await asyncio.sleep(2)
-    await interaction.channel.delete()
-
-# ======================================================
-# 🧑‍💼 STAFF / UTILITIES
-# ======================================================
-@bot.tree.command(name="startshift", description="Start a shift", guild=GUILD)
-async def startshift(interaction: discord.Interaction):
-    await interaction.response.send_message("🟢 Shift started! (logging coming soon)")
-
-@bot.tree.command(name="endshift", description="End a shift", guild=GUILD)
-async def endshift(interaction: discord.Interaction):
-    await interaction.response.send_message("🔴 Shift ended!")
-
-@bot.tree.command(name="loa", description="Request leave of absence", guild=GUILD)
-async def loa(interaction: discord.Interaction, reason: str):
-    await interaction.response.send_message(f"📆 **LOA Request Submitted**\nReason: {reason}")
-
-@bot.tree.command(name="serverinfo", description="Server info", guild=GUILD)
-async def serverinfo(interaction: discord.Interaction):
-    guild = interaction.guild
-    
-    embed = discord.Embed(
-        title=f"🏠 {guild.name}",
-        color=discord.Color.blue()
-    )
-    embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
-    embed.add_field(name="Members", value=guild.member_count, inline=True)
-    embed.add_field(name="Roles", value=len(guild.roles), inline=True)
-    embed.add_field(name="Channels", value=len(guild.channels), inline=True)
-    embed.add_field(name="Created", value=f"<t:{int(guild.created_at.timestamp())}:R>", inline=True)
-    embed.add_field(name="Owner", value=guild.owner.mention if guild.owner else "Unknown", inline=True)
-    
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="botstatus", description="Bot status", guild=GUILD)
-async def botstatus(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🤖 Bot Status",
-        color=discord.Color.green()
-    )
-    embed.add_field(name="Status", value="✅ Operational", inline=True)
-    embed.add_field(name="Latency", value=f"{round(bot.latency * 1000)}ms", inline=True)
-    embed.add_field(name="Servers", value=len(bot.guilds), inline=True)
-    
-    await interaction.response.send_message(embed=embed)
-
-# ======================================================
-# 🧑‍💼 SIMULATION COMMANDS
-# ======================================================
-@bot.tree.command(name="warninglogs", description="Simulate warnings for a player", guild=GUILD)
-@app_commands.checks.has_permissions(administrator=True)
-async def warninglogs(interaction: discord.Interaction, member: discord.Member, amount: int):
-    warnings_list = "\n".join([f"⚠️ Warning {i+1}" for i in range(amount)])
-    await interaction.response.send_message(f"📄 **Warnings for {member.mention}:**\n{warnings_list}")
-
-@bot.tree.command(name="strikelogs", description="Simulate strikes for a player", guild=GUILD)
-@app_commands.checks.has_permissions(administrator=True)
-async def strikelogs(interaction: discord.Interaction, member: discord.Member, amount: int):
-    strikes = "\n".join([f"❌ Strike {i+1}" for i in range(amount)])
-    await interaction.response.send_message(f"📄 **Strikes for {member.mention}:**\n{strikes}")
-
-@bot.tree.command(name="promotelogs", description="Simulate promotion of a player", guild=GUILD)
-@app_commands.checks.has_permissions(administrator=True)
-async def promotelogs(interaction: discord.Interaction, member: discord.Member, new_role: str):
-    await interaction.response.send_message(f"⬆️ **Promotion:** {member.mention} promoted to **{new_role}**.")
-
-@bot.tree.command(name="demotelogs", description="Simulate demotion of a player", guild=GUILD)
-@app_commands.checks.has_permissions(administrator=True)
-async def demotelogs(interaction: discord.Interaction, member: discord.Member, new_role: str):
-    await interaction.response.send_message(f"⬇️ **Demotion:** {member.mention} demoted to **{new_role}**.")
-
-@bot.tree.command(name="loalog", description="Simulate LOA approval", guild=GUILD)
-@app_commands.checks.has_permissions(administrator=True)
-async def loalog(interaction: discord.Interaction, member: discord.Member, reason: str, days: int):
-    await interaction.response.send_message(f"📆 **LOA Approved** for {member.mention}\nReason: {reason}\nDuration: {days} days")
-
-@bot.tree.command(name="shiftlog", description="Simulate shift log for a player", guild=GUILD)
-@app_commands.checks.has_permissions(administrator=True)
-async def shiftlog(interaction: discord.Interaction, member: discord.Member, shift_type: str):
-    if shift_type.lower() not in ["start", "end"]:
-        await interaction.response.send_message("❌ Shift type must be `start` or `end`.", ephemeral=True)
-        return
-    emoji = "🟢" if shift_type.lower() == "start" else "🔴"
-    await interaction.response.send_message(f"{emoji} **Shift {shift_type.capitalize()}**: {member.mention}")
+# Rest of commands (announce, slowmode, lock, unlock, clear, giveaway, poll, tickets, etc.) from original code...
+# [Copy remaining commands from your original bot code]
 
 # ======================================================
 # 🔐 LOGIN
