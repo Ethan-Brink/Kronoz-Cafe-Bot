@@ -14,7 +14,7 @@ import io
 GUILD_ID = 1441171105397346508
 COUNTING_CHANNEL_ID = 1441204274964201664
 MOD_LOG_CHANNEL_ID = 1455167564534513836
-ANNOUNCEMENTS_CHANNEL_ID = 1457077810412650792  # SET YOUR ANNOUNCEMENTS CHANNEL ID HERE
+ANNOUNCEMENTS_CHANNEL_ID = 1441171167263068301  # SET YOUR ANNOUNCEMENTS CHANNEL ID HERE
 MAX_WARNINGS = 3
 
 # Grand Opening Event Details
@@ -157,8 +157,8 @@ class KronozCafe(commands.Bot):
         
         hours_left = int(time_until.total_seconds() // 3600)
         
-        # Send updates at specific milestones
-        if hours_left in [24, 12, 6, 3, 1]:
+        # Send updates at specific milestones (23 added for when starting late)
+        if hours_left in [24, 23, 12, 6, 3, 1]:
             await self.send_countdown_update(hours_left)
     
     async def send_countdown_update(self, hours_left):
@@ -322,6 +322,21 @@ async def countdown(interaction: discord.Interaction):
     embed.set_footer(text="See you there! ☕")
     
     await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="forcecountdown", description="Force send countdown announcement (Admin only)", guild=GUILD)
+@app_commands.checks.has_permissions(administrator=True)
+async def forcecountdown(interaction: discord.Interaction):
+    now = datetime.now(timezone.utc)
+    time_until = GRAND_OPENING_TIME - now
+    
+    if time_until.total_seconds() <= 0:
+        await interaction.response.send_message("❌ The event has already started!", ephemeral=True)
+        return
+    
+    hours_left = int(time_until.total_seconds() // 3600)
+    
+    await bot.send_countdown_update(hours_left)
+    await interaction.response.send_message(f"✅ Countdown announcement posted! ({hours_left}h remaining)", ephemeral=True)
 
 # ======================================================
 # 🛡 MODERATION - WARNING SYSTEM
