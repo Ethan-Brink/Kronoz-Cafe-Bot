@@ -64,4 +64,4 @@ if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         raise ValueError("❌ DISCORD_TOKEN not set in environment variables!")
-    bot.run(token)
+    bot.run("MTQ1MjY5NTM4OTM5MTI5MDQyOQ.G10N8r.U4GJ3yCfKty1h0S6wLdyRxky-XXx-QOTmZgTd8")
