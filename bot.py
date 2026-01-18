@@ -22,12 +22,22 @@ class KronozCafe(commands.Bot):
         self.roblox = RobloxAPI()
 
     async def setup_hook(self):
-        # Import all cogs
-        await self.load_extension("cogs.moderation")
-        await self.load_extension("cogs.roblox_integration")
-        await self.load_extension("cogs.tickets")
-        await self.load_extension("cogs.loa")
-        await self.load_extension("cogs.staff_management")
+        # Import all cogs with error handling
+        cogs = [
+            "cogs.moderation",
+            "cogs.roblox_integration", 
+            "cogs.tickets",
+            "cogs.loa",
+            "cogs.staff_management",
+            "cogs.appeals"
+        ]
+        
+        for cog in cogs:
+            try:
+                await self.load_extension(cog)
+                print(f"✅ Loaded {cog}")
+            except Exception as e:
+                print(f"❌ Failed to load {cog}: {e}")
         
         guild = discord.Object(id=GUILD_ID)
         self.tree.copy_global_to(guild=guild)
