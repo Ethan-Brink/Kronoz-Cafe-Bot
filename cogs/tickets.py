@@ -236,6 +236,9 @@ async def close_ticket(interaction: discord.Interaction):
         
         # Calculate duration
         created = datetime.fromisoformat(created_at)
+        # Ensure created has timezone info
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
         duration = datetime.now(timezone.utc) - created
         hours = int(duration.total_seconds() // 3600)
         minutes = int((duration.total_seconds() % 3600) // 60)
