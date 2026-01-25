@@ -123,14 +123,35 @@ class Moderation(commands.Cog):
     # ===== VERBAL WARN =====
     @app_commands.command(name="verbalwarn", description="Issue a verbal warning to a user")
     @app_commands.checks.has_permissions(moderate_members=True)
+    @app_commands.describe(
+        user="Member to warn OR User ID",
+        reason="Reason for warning"
+    )
     async def verbalwarn(self, interaction: discord.Interaction, 
-                        member: discord.Member, reason: str):
-        """Issue verbal warning"""
-        if member.bot:
+                        user: str, reason: str):
+        """Issue verbal warning - accepts member mention or user ID"""
+        # Try to parse as user ID
+        try:
+            user_id = int(user.strip('<@!>'))
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid user format! Use @mention or user ID", ephemeral=True)
+            return
+        
+        # Try to get as member
+        member = interaction.guild.get_member(user_id)
+        
+        # Get user object
+        try:
+            user_obj = await self.bot.fetch_user(user_id)
+        except discord.NotFound:
+            await interaction.response.send_message("❌ User not found!", ephemeral=True)
+            return
+        
+        if user_obj.bot:
             await interaction.response.send_message("❌ Cannot warn bots!", ephemeral=True)
             return
         
-        if member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
+        if member and member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
             await interaction.response.send_message("❌ Cannot warn someone with equal or higher role!", ephemeral=True)
             return
         
@@ -174,38 +195,63 @@ class Moderation(commands.Cog):
     # ===== FORMAL WARN =====
     @app_commands.command(name="warn", description="Issue a formal warning to a user")
     @app_commands.checks.has_permissions(moderate_members=True)
+    @app_commands.describe(
+        user="Member to warn OR User ID",
+        reason="Reason for warning"
+    )
     async def warn(self, interaction: discord.Interaction, 
-                   member: discord.Member, reason: str):
-        """Issue formal warning"""
-        if member.bot:
+                   user: str, reason: str):
+        """Issue formal warning - accepts member mention or user ID"""
+        # Try to parse as user ID
+        try:
+            user_id = int(user.strip('<@!>'))
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid user format! Use @mention or user ID", ephemeral=True)
+            return
+        
+        # Try to get as member
+        member = interaction.guild.get_member(user_id)
+        
+        # Get user object
+        try:
+            user_obj = await self.bot.fetch_user(user_id)
+        except discord.NotFound:
+            await interaction.response.send_message("❌ User not found!", ephemeral=True)
+            return
+        
+        if user_obj.bot:
             await interaction.response.send_message("❌ Cannot warn bots!", ephemeral=True)
             return
         
-        if member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
+        if member and member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
             await interaction.response.send_message("❌ Cannot warn someone with equal or higher role!", ephemeral=True)
             return
         
-        self.bot.db.add_punishment(member.id, "warn", reason, interaction.user.id)
-        self.bot.db.log_staff_action(interaction.user.id, "warn", member.id, reason)
+        self.bot.db.add_punishment(user_id, "warn", reason, interaction.user.id)
+        self.bot.db.log_staff_action(interaction.user.id, "warn", user_id, reason)
         
-        await self.send_punishment_dm(member, "warn", reason, interaction.user)
+        if member:
+            await self.send_punishment_dm(user_obj, "warn", reason, interaction.user)
         
-        warn_count = self.bot.db.get_punishment_count(member.id, "warn")
+        warn_count = self.bot.db.get_punishment_count(user_id, "warn")
         
         embed = discord.Embed(
             title="🚨 Formal Warning Issued",
             color=COLORS["error"],
             timestamp=datetime.now(timezone.utc)
         )
-        embed.add_field(name="User", value=f"{member.mention} ({member.id})", inline=True)
+        embed.add_field(name="User", value=f"{user_obj.mention} ({user_id})", inline=True)
         embed.add_field(name="Moderator", value=interaction.user.mention, inline=True)
         embed.add_field(name="Count", value=f"{warn_count}/{PUNISHMENT_THRESHOLDS['warns']}", inline=True)
         embed.add_field(name="Reason", value=reason, inline=False)
         
+        if not member:
+            embed.add_field(name="ℹ️ Note", value="User is not in the server", inline=False)
+        
         if warn_count >= PUNISHMENT_THRESHOLDS["warns"]:
             embed.add_field(
                 name="⚠️ Threshold Reached",
-                value="User will be auto-kicked!",
+                value="User will be auto-kicked!" if member else "User would be kicked if in server",
                 inline=False
             )
         
@@ -215,12 +261,14 @@ class Moderation(commands.Cog):
         if mod_channel:
             await mod_channel.send(embed=embed)
         
-        await self.check_auto_punishment(member.id, interaction.user, interaction.guild)
+        if member:
+            await self.check_auto_punishment(user_id, interaction.user, interaction.guild)
     
     # ===== UNWARN =====
     @app_commands.command(name="unwarn", description="Remove a warning from a user")
     @app_commands.checks.has_permissions(moderate_members=True)
     @app_commands.describe(
+        user="Member OR User ID",
         warning_type="Type of warning to remove (verbal_warn or warn)"
     )
     @app_commands.choices(warning_type=[
@@ -228,28 +276,43 @@ class Moderation(commands.Cog):
         app_commands.Choice(name="Formal Warning", value="warn")
     ])
     async def unwarn(self, interaction: discord.Interaction, 
-                    member: discord.Member, warning_type: str):
-        """Remove warnings"""
-        punishments = self.bot.db.get_active_punishments(member.id, warning_type)
+                    user: str, warning_type: str):
+        """Remove warnings - accepts member mention or user ID"""
+        # Try to parse as user ID
+        try:
+            user_id = int(user.strip('<@!>'))
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid user format! Use @mention or user ID", ephemeral=True)
+            return
+        
+        # Get user object
+        try:
+            user_obj = await self.bot.fetch_user(user_id)
+        except discord.NotFound:
+            await interaction.response.send_message("❌ User not found!", ephemeral=True)
+            return
+        
+        punishments = self.bot.db.get_active_punishments(user_id, warning_type)
         
         if not punishments:
             await interaction.response.send_message(
-                f"❌ {member.mention} has no active {warning_type.replace('_', ' ')}s", 
+                f"❌ {user_obj.mention} has no active {warning_type.replace('_', ' ')}s", 
                 ephemeral=True
             )
             return
         
         # Remove most recent warning
         self.bot.db.remove_punishment(punishments[0][0], interaction.user.id)
-        self.bot.db.log_staff_action(interaction.user.id, f"remove_{warning_type}", member.id)
+        self.bot.db.log_staff_action(interaction.user.id, f"remove_{warning_type}", user_id)
         
-        remaining = self.bot.db.get_punishment_count(member.id, warning_type)
+        remaining = self.bot.db.get_punishment_count(user_id, warning_type)
         
         embed = discord.Embed(
             title=f"✅ {warning_type.replace('_', ' ').title()} Removed",
-            description=f"Removed {warning_type.replace('_', ' ')} from {member.mention}",
+            description=f"Removed {warning_type.replace('_', ' ')} from {user_obj.mention}",
             color=COLORS["success"]
         )
+        embed.add_field(name="User ID", value=str(user_id), inline=True)
         embed.add_field(name="Removed By", value=interaction.user.mention, inline=True)
         embed.add_field(name="Remaining", value=str(remaining), inline=True)
         
@@ -262,9 +325,25 @@ class Moderation(commands.Cog):
     # ===== KICK =====
     @app_commands.command(name="kick", description="Kick a user from the server")
     @app_commands.checks.has_permissions(kick_members=True)
+    @app_commands.describe(
+        user="Member to kick OR User ID if they're not in server",
+        reason="Reason for kick"
+    )
     async def kick(self, interaction: discord.Interaction, 
-                   member: discord.Member, reason: str):
-        """Kick user"""
+                   user: str, reason: str):
+        """Kick user - accepts member mention or user ID"""
+        # Try to parse as user ID first
+        try:
+            user_id = int(user.strip('<@!>'))
+            member = interaction.guild.get_member(user_id)
+            
+            if not member:
+                await interaction.response.send_message("❌ User is not in the server and cannot be kicked!", ephemeral=True)
+                return
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid user format! Use @mention or user ID", ephemeral=True)
+            return
+        
         if member.bot:
             await interaction.response.send_message("❌ Cannot kick bots!", ephemeral=True)
             return
@@ -308,45 +387,71 @@ class Moderation(commands.Cog):
     @app_commands.command(name="ban", description="Ban a user from the server")
     @app_commands.checks.has_permissions(ban_members=True)
     @app_commands.describe(
+        user="Member to ban OR User ID (works even if they left)",
+        reason="Reason for ban",
         delete_days="Number of days of messages to delete (0-7)"
     )
     async def ban(self, interaction: discord.Interaction, 
-                  member: discord.Member, reason: str, delete_days: int = 0):
-        """Ban user"""
-        if member.bot:
-            await interaction.response.send_message("❌ Cannot ban bots!", ephemeral=True)
-            return
-        
-        if member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
-            await interaction.response.send_message("❌ Cannot ban someone with equal or higher role!", ephemeral=True)
-            return
-        
+                  user: str, reason: str, delete_days: int = 0):
+        """Ban user - accepts member mention or user ID"""
         if delete_days < 0 or delete_days > 7:
             delete_days = 0
         
+        # Try to parse as user ID
         try:
-            # Send DM before banning
-            await self.send_punishment_dm(member, "ban", reason, interaction.user)
+            user_id = int(user.strip('<@!>'))
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid user format! Use @mention or user ID", ephemeral=True)
+            return
+        
+        # Try to get as member first
+        member = interaction.guild.get_member(user_id)
+        
+        # Get user object (works even if not in server)
+        try:
+            user_obj = await self.bot.fetch_user(user_id)
+        except discord.NotFound:
+            await interaction.response.send_message("❌ User not found!", ephemeral=True)
+            return
+        
+        # Check permissions if user is in server
+        if member:
+            if member.bot:
+                await interaction.response.send_message("❌ Cannot ban bots!", ephemeral=True)
+                return
+            
+            if member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
+                await interaction.response.send_message("❌ Cannot ban someone with equal or higher role!", ephemeral=True)
+                return
+        
+        try:
+            # Send DM before banning (only if they're in server)
+            if member:
+                await self.send_punishment_dm(user_obj, "ban", reason, interaction.user)
             
             # Ban
-            await member.ban(reason=f"{reason} | By: {interaction.user}", 
+            await interaction.guild.ban(user_obj, reason=f"{reason} | By: {interaction.user}", 
                            delete_message_days=delete_days)
             
             # Log to database
-            self.bot.db.add_punishment(member.id, "ban", reason, interaction.user.id)
-            self.bot.db.log_staff_action(interaction.user.id, "ban", member.id, reason)
+            self.bot.db.add_punishment(user_id, "ban", reason, interaction.user.id)
+            self.bot.db.log_staff_action(interaction.user.id, "ban", user_id, reason)
             
             embed = discord.Embed(
                 title="🔨 User Banned",
                 color=COLORS["error"],
                 timestamp=datetime.now(timezone.utc)
             )
-            embed.add_field(name="User", value=f"{member.mention} ({member.name}#{member.discriminator})", inline=True)
+            embed.add_field(name="User", value=f"{user_obj.mention} ({user_obj.name})", inline=True)
+            embed.add_field(name="User ID", value=str(user_id), inline=True)
             embed.add_field(name="Moderator", value=interaction.user.mention, inline=True)
             embed.add_field(name="Reason", value=reason, inline=False)
             
             if delete_days > 0:
                 embed.add_field(name="Messages Deleted", value=f"Last {delete_days} day(s)", inline=True)
+            
+            if not member:
+                embed.add_field(name="ℹ️ Note", value="User was not in the server", inline=False)
             
             await interaction.response.send_message(embed=embed)
             
@@ -355,7 +460,7 @@ class Moderation(commands.Cog):
                 await mod_channel.send(embed=embed)
             
         except discord.Forbidden:
-            await interaction.response.send_message("❌ I don't have permission to ban this member!", ephemeral=True)
+            await interaction.response.send_message("❌ I don't have permission to ban this user!", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"❌ An error occurred: {str(e)}", ephemeral=True)
     
@@ -401,8 +506,10 @@ class Moderation(commands.Cog):
     @app_commands.command(name="timeout", description="Timeout a user")
     @app_commands.checks.has_permissions(moderate_members=True)
     @app_commands.describe(
+        user="Member to timeout (must be in server)",
         duration="Timeout duration",
-        unit="Time unit (minutes, hours, days)"
+        unit="Time unit (minutes, hours, days)",
+        reason="Reason for timeout"
     )
     @app_commands.choices(unit=[
         app_commands.Choice(name="Minutes", value="minutes"),
@@ -410,8 +517,20 @@ class Moderation(commands.Cog):
         app_commands.Choice(name="Days", value="days")
     ])
     async def timeout(self, interaction: discord.Interaction, 
-                     member: discord.Member, duration: int, unit: str, reason: str):
-        """Timeout user"""
+                     user: str, duration: int, unit: str, reason: str):
+        """Timeout user - must be in server"""
+        # Try to parse as user ID
+        try:
+            user_id = int(user.strip('<@!>'))
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid user format! Use @mention or user ID", ephemeral=True)
+            return
+        
+        # Must be a member for timeout
+        member = interaction.guild.get_member(user_id)
+        if not member:
+            await interaction.response.send_message("❌ User must be in the server to timeout!", ephemeral=True)
+            return
         if member.bot:
             await interaction.response.send_message("❌ Cannot timeout bots!", ephemeral=True)
             return
