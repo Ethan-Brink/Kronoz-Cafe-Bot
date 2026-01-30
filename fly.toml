@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for kronoz-cafe-bot on 2026-01-30T19:32:17+02:00
+# fly.toml app configuration file generated for kronoz-cafe-bot-m-rpfw on 2026-01-30T18:09:27Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'kronoz-cafe-bot'
+app = 'kronoz-cafe-bot-m-rpfw'
 primary_region = 'jnb'
 
 [build]
@@ -20,4 +20,4 @@ primary_region = 'jnb'
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 1024
+  memory_mb = 256
