@@ -320,6 +320,24 @@ class Database:
             (user_id,)
         )
     
+class Database:
+    def __init__(self, path):
+        self.conn = sqlite3.connect(path)
+        self.conn.row_factory = sqlite3.Row
+        self.cursor = self.conn.cursor()
+
+    def execute(self, query, params=()):
+        return self.cursor.execute(query, params)
+
+    def commit(self):
+        self.conn.commit()
+
+    def fetchall(self):
+        return self.cursor.fetchall()
+
+    def fetchone(self):
+        return self.cursor.fetchone()
+
     def __del__(self):
         """Cleanup on deletion"""
         if hasattr(self, 'connection'):
