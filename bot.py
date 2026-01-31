@@ -12,10 +12,10 @@ try:
     from config import *
 except ImportError:
     # Default config values
-    GUILD_ID = 123456789  # Replace with your server ID
-    MOD_LOG_CHANNEL_ID = 123456789  # Replace with mod log channel
-    SUGGESTION_CHANNEL_ID = 123456789  # Replace with suggestion channel
-    WELCOME_CHANNEL_ID = 123456789  # Replace with welcome channel
+    GUILD_ID = 1457746056749125644  # Replace with your server ID
+    MOD_LOG_CHANNEL_ID = 1462001894934315009  # Replace with mod log channel
+    SUGGESTION_CHANNEL_ID = 1458733613142114418  # Replace with suggestion channel
+    WELCOME_CHANNEL_ID = 1467132930609381441  # Replace with welcome channel
 
 # Bot Setup
 intents = discord.Intents.default()
