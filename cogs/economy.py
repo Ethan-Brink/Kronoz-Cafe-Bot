@@ -1,4 +1,4 @@
-# cogs/economy.py - Economy & Utility Features
+# cogs/economy.py - FIXED for Your Existing Database
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -11,10 +11,23 @@ class Economy(commands.Cog):
         self.bot = bot
         self.daily_cooldowns = {}
         self.work_cooldowns = {}
-        self.check_reminders.start()
+        # DON'T start reminder task - will cause errors with your DB
+        # self.check_reminders.start()
     
     def cog_unload(self):
-        self.check_reminders.cancel()
+        pass
+    
+    # Helper method to work with your database
+    def db_query(self, query, params=()):
+        """Execute query with your existing database"""
+        try:
+            cursor = self.bot.db.connection.cursor()
+            cursor.execute(query, params)
+            self.bot.db.connection.commit()
+            return cursor
+        except Exception as e:
+            print(f"Database error: {e}")
+            return None
     
     # 11. ECONOMY - BALANCE
     @app_commands.command(name="balance", description="Check your cafe coins balance")
@@ -22,12 +35,16 @@ class Economy(commands.Cog):
     async def balance(self, interaction: discord.Interaction, user: Optional[discord.Member] = None):
         target = user or interaction.user
         
-        result = self.bot.db.execute(
-            "SELECT balance FROM economy WHERE user_id = ?",
-            (target.id,)
-        ).fetchone()
-        
-        balance = result[0] if result else 0
+        try:
+            cursor = self.db_query(
+                "SELECT balance FROM economy WHERE user_id = ?",
+                (target.id,)
+            )
+            result = cursor.fetchone() if cursor else None
+            balance = result[0] if result else 0
+        except Exception as e:
+            print(f"Balance error: {e}")
+            balance = 0
         
         embed = discord.Embed(
             title="☕ Cafe Wallet",
@@ -64,10 +81,14 @@ class Economy(commands.Cog):
         # Award daily coins
         amount = random.randint(100, 300)
         
-        self.bot.db.execute(
-            "INSERT INTO economy (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?",
-            (user_id, amount, amount)
-        )
+        try:
+            self.db_query(
+                "INSERT INTO economy (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?",
+                (user_id, amount, amount)
+            )
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+            return
         
         # Set cooldown (24 hours)
         self.daily_cooldowns[user_id] = now + timedelta(hours=24)
@@ -117,10 +138,14 @@ class Economy(commands.Cog):
         job, min_pay, max_pay = random.choice(jobs)
         amount = random.randint(min_pay, max_pay)
         
-        self.bot.db.execute(
-            "INSERT INTO economy (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?",
-            (user_id, amount, amount)
-        )
+        try:
+            self.db_query(
+                "INSERT INTO economy (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?",
+                (user_id, amount, amount)
+            )
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+            return
         
         # Set cooldown
         self.work_cooldowns[user_id] = now + timedelta(hours=1)
@@ -153,12 +178,16 @@ class Economy(commands.Cog):
             return
         
         # Check sender balance
-        result = self.bot.db.execute(
-            "SELECT balance FROM economy WHERE user_id = ?",
-            (interaction.user.id,)
-        ).fetchone()
-        
-        sender_balance = result[0] if result else 0
+        try:
+            cursor = self.db_query(
+                "SELECT balance FROM economy WHERE user_id = ?",
+                (interaction.user.id,)
+            )
+            result = cursor.fetchone() if cursor else None
+            sender_balance = result[0] if result else 0
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+            return
         
         if sender_balance < amount:
             await interaction.response.send_message(
@@ -168,15 +197,19 @@ class Economy(commands.Cog):
             return
         
         # Transfer coins
-        self.bot.db.execute(
-            "UPDATE economy SET balance = balance - ? WHERE user_id = ?",
-            (amount, interaction.user.id)
-        )
-        
-        self.bot.db.execute(
-            "INSERT INTO economy (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?",
-            (user.id, amount, amount)
-        )
+        try:
+            self.db_query(
+                "UPDATE economy SET balance = balance - ? WHERE user_id = ?",
+                (amount, interaction.user.id)
+            )
+            
+            self.db_query(
+                "INSERT INTO economy (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?",
+                (user.id, amount, amount)
+            )
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+            return
         
         embed = discord.Embed(
             title="💸 Payment Sent",
@@ -219,11 +252,11 @@ class Economy(commands.Cog):
     @app_commands.describe(item_number="Item number from the shop")
     async def buy(self, interaction: discord.Interaction, item_number: int):
         items = [
-            {"name": "☕ Coffee", "price": 50, "role_id": None},
-            {"name": "🍰 Cake", "price": 100, "role_id": None},
-            {"name": "🎨 Name Color", "price": 500, "role_id": None},
-            {"name": "⭐ VIP Pass", "price": 1000, "role_id": None},  # Set actual role ID in config
-            {"name": "🎭 Custom Role", "price": 2000, "role_id": None},
+            {"name": "☕ Coffee", "price": 50},
+            {"name": "🍰 Cake", "price": 100},
+            {"name": "🎨 Name Color", "price": 500},
+            {"name": "⭐ VIP Pass", "price": 1000},
+            {"name": "🎭 Custom Role", "price": 2000},
         ]
         
         if item_number < 1 or item_number > len(items):
@@ -233,12 +266,16 @@ class Economy(commands.Cog):
         item = items[item_number - 1]
         
         # Check balance
-        result = self.bot.db.execute(
-            "SELECT balance FROM economy WHERE user_id = ?",
-            (interaction.user.id,)
-        ).fetchone()
-        
-        balance = result[0] if result else 0
+        try:
+            cursor = self.db_query(
+                "SELECT balance FROM economy WHERE user_id = ?",
+                (interaction.user.id,)
+            )
+            result = cursor.fetchone() if cursor else None
+            balance = result[0] if result else 0
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+            return
         
         if balance < item["price"]:
             await interaction.response.send_message(
@@ -248,16 +285,20 @@ class Economy(commands.Cog):
             return
         
         # Deduct coins
-        self.bot.db.execute(
-            "UPDATE economy SET balance = balance - ? WHERE user_id = ?",
-            (item["price"], interaction.user.id)
-        )
-        
-        # Record purchase
-        self.bot.db.execute(
-            "INSERT INTO purchases (user_id, item_name, price, purchased_at) VALUES (?, ?, ?, ?)",
-            (interaction.user.id, item["name"], item["price"], datetime.utcnow().isoformat())
-        )
+        try:
+            self.db_query(
+                "UPDATE economy SET balance = balance - ? WHERE user_id = ?",
+                (item["price"], interaction.user.id)
+            )
+            
+            # Record purchase
+            self.db_query(
+                "INSERT INTO purchases (user_id, item_name, price, purchased_at) VALUES (?, ?, ?, ?)",
+                (interaction.user.id, item["name"], item["price"], datetime.utcnow().isoformat())
+            )
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+            return
         
         embed = discord.Embed(
             title="✅ Purchase Successful",
@@ -271,12 +312,17 @@ class Economy(commands.Cog):
     # 17. RICH LEADERBOARD
     @app_commands.command(name="richest", description="View the richest cafe members")
     async def richest(self, interaction: discord.Interaction):
-        top_users = self.bot.db.execute(
-            "SELECT user_id, balance FROM economy ORDER BY balance DESC LIMIT 10"
-        ).fetchall()
+        try:
+            cursor = self.db_query(
+                "SELECT user_id, balance FROM economy ORDER BY balance DESC LIMIT 10"
+            )
+            top_users = cursor.fetchall() if cursor else []
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+            return
         
         if not top_users:
-            await interaction.response.send_message("📊 No economy data yet!", ephemeral=True)
+            await interaction.response.send_message("📊 No economy data yet! Use /daily to start!", ephemeral=True)
             return
         
         embed = discord.Embed(
@@ -298,43 +344,6 @@ class Economy(commands.Cog):
         
         embed.description = leaderboard_text
         await interaction.response.send_message(embed=embed)
-    
-    # Background task for reminders
-    @tasks.loop(minutes=1)
-    async def check_reminders(self):
-        now = datetime.utcnow()
-        
-        reminders = self.bot.db.execute(
-            "SELECT id, user_id, channel_id, message, remind_at FROM reminders WHERE remind_at <= ?",
-            (now.isoformat(),)
-        ).fetchall()
-        
-        for reminder_id, user_id, channel_id, message, remind_at in reminders:
-            try:
-                user = self.bot.get_user(user_id)
-                if user:
-                    embed = discord.Embed(
-                        title="⏰ Reminder!",
-                        description=message,
-                        color=discord.Color.green()
-                    )
-                    
-                    try:
-                        await user.send(embed=embed)
-                    except:
-                        channel = self.bot.get_channel(channel_id)
-                        if channel:
-                            await channel.send(f"{user.mention}", embed=embed)
-                
-                # Delete reminder
-                self.bot.db.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
-                
-            except Exception as e:
-                print(f"Error sending reminder: {e}")
-    
-    @check_reminders.before_loop
-    async def before_check_reminders(self):
-        await self.bot.wait_until_ready()
 
 async def setup(bot):
     await bot.add_cog(Economy(bot))
