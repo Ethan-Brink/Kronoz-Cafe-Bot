@@ -18,7 +18,7 @@ class Fun(commands.Cog):
         try:
             cursor = self.bot.db.cursor
             cursor.execute(query, params)
-            self.bot.db.connection.commit()
+            self.bot.db.conn.commit()
             return cursor
         except Exception as e:
             print(f"Database error (fun): {e}")
@@ -405,7 +405,7 @@ class Fun(commands.Cog):
         await interaction.response.send_message(embed=embed)
     
     # 10. USER INFO
-    @app_commands.command(name="userinfo", description="Get information about a user")
+    @app_commands.command(name="fun_userinfo", description="Get information about a user")
     @app_commands.describe(user="The user to get info about (leave empty for yourself)")
     async def userinfo(self, interaction: discord.Interaction, user: Optional[discord.Member] = None):
         target = user or interaction.user

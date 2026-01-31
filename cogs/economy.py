@@ -19,15 +19,14 @@ class Economy(commands.Cog):
     
     # Helper method to work with your database
     def db_query(self, query, params=()):
-        """Execute query with your existing database"""
-        try:
-            cursor = self.bot.db.connection.cursor()
-            cursor.execute(query, params)
-            self.bot.db.connection.commit()
-            return cursor
-        except Exception as e:
-            print(f"Database error: {e}")
-            return None
+       try:
+        cursor = self.bot.db.cursor
+        cursor.execute(query, params)
+        self.bot.db.conn.commit()
+        return cursor
+       except Exception as e:
+        print(f"Database error: {e}")
+        return None
     
     # 11. ECONOMY - BALANCE
     @app_commands.command(name="balance", description="Check your cafe coins balance")
