@@ -15,14 +15,13 @@ class Fun(commands.Cog):
     
     # Helper method for database
     def db_query(self, query, params=()):
-        """Execute query with existing database"""
         try:
-            cursor = self.bot.db.connection.cursor()
+            cursor = self.bot.db.cursor
             cursor.execute(query, params)
             self.bot.db.connection.commit()
             return cursor
         except Exception as e:
-            print(f"Database error: {e}")
+            print(f"Database error (fun): {e}")
             return None
     
     # 1. TRIVIA SYSTEM
