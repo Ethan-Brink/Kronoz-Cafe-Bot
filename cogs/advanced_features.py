@@ -14,6 +14,18 @@ class AdvancedFeatures(commands.Cog):
         self.giveaway_active = {}
         self.auto_role_enabled = True
     
+    # Helper method for database
+    def db_query(self, query, params=()):
+        """Execute query with existing database"""
+        try:
+            cursor = self.bot.db.connection.cursor()
+            cursor.execute(query, params)
+            self.bot.db.connection.commit()
+            return cursor
+        except Exception as e:
+            print(f"Database error: {e}")
+            return None
+    
     # 18. SUGGESTION SYSTEM
     @app_commands.command(name="suggest", description="Submit a suggestion for the cafe")
     @app_commands.describe(suggestion="Your suggestion")
@@ -23,11 +35,15 @@ class AdvancedFeatures(commands.Cog):
             return
         
         # Store suggestion
-        self.bot.db.execute(
-            "INSERT INTO suggestions (user_id, suggestion, created_at, status) VALUES (?, ?, ?, ?)",
-            (interaction.user.id, suggestion, datetime.utcnow().isoformat(), "pending")
-        )
-        suggestion_id = self.bot.db.execute("SELECT last_insert_rowid()").fetchone()[0]
+        try:
+            cursor = self.db_query(
+                "INSERT INTO suggestions (user_id, suggestion, created_at, status) VALUES (?, ?, ?, ?)",
+                (interaction.user.id, suggestion, datetime.utcnow().isoformat(), "pending")
+            )
+            suggestion_id = cursor.lastrowid if cursor else 0
+        except Exception as e:
+            print(f"Suggestion database error: {e}")
+            suggestion_id = 0
         
         # Create suggestion embed
         embed = discord.Embed(
@@ -159,10 +175,13 @@ class AdvancedFeatures(commands.Cog):
     @app_commands.command(name="afk", description="Set yourself as AFK")
     @app_commands.describe(reason="Why you're AFK (optional)")
     async def afk(self, interaction: discord.Interaction, reason: Optional[str] = "AFK"):
-        self.bot.db.execute(
-            "INSERT INTO afk_users (user_id, reason, since) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET reason = ?, since = ?",
-            (interaction.user.id, reason, datetime.utcnow().isoformat(), reason, datetime.utcnow().isoformat())
-        )
+        try:
+            self.db_query(
+                "INSERT INTO afk_users (user_id, reason, since) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET reason = ?, since = ?",
+                (interaction.user.id, reason, datetime.utcnow().isoformat(), reason, datetime.utcnow().isoformat())
+            )
+        except Exception as e:
+            print(f"AFK database error: {e}")
         
         embed = discord.Embed(
             description=f"💤 {interaction.user.mention} is now AFK: {reason}",
@@ -178,10 +197,15 @@ class AdvancedFeatures(commands.Cog):
         
         # Check if user is AFK and mentioned
         for mention in message.mentions:
-            afk_data = self.bot.db.execute(
-                "SELECT reason, since FROM afk_users WHERE user_id = ?",
-                (mention.id,)
-            ).fetchone()
+            try:
+                cursor = self.db_query(
+                    "SELECT reason, since FROM afk_users WHERE user_id = ?",
+                    (mention.id,)
+                )
+                afk_data = cursor.fetchone() if cursor else None
+            except Exception as e:
+                print(f"AFK check error: {e}")
+                afk_data = None
             
             if afk_data:
                 reason, since = afk_data
@@ -199,13 +223,21 @@ class AdvancedFeatures(commands.Cog):
                 )
         
         # Remove AFK status if user sends message
-        afk_check = self.bot.db.execute(
-            "SELECT user_id FROM afk_users WHERE user_id = ?",
-            (message.author.id,)
-        ).fetchone()
+        try:
+            cursor = self.db_query(
+                "SELECT user_id FROM afk_users WHERE user_id = ?",
+                (message.author.id,)
+            )
+            afk_check = cursor.fetchone() if cursor else None
+        except Exception as e:
+            print(f"AFK removal check error: {e}")
+            afk_check = None
         
         if afk_check:
-            self.bot.db.execute("DELETE FROM afk_users WHERE user_id = ?", (message.author.id,))
+            try:
+                self.db_query("DELETE FROM afk_users WHERE user_id = ?", (message.author.id,))
+            except Exception as e:
+                print(f"AFK removal error: {e}")
             
             try:
                 await message.reply(

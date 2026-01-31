@@ -1,11 +1,10 @@
-# cogs/fun.py - Fun & Engagement Features
+# cogs/fun.py - Fun & Engagement Features (NO DUPLICATE LEADERBOARD)
 import discord
 from discord.ext import commands
 from discord import app_commands
 import random
 import asyncio
 from datetime import datetime, timedelta
-import json
 from typing import Optional
 
 class Fun(commands.Cog):
@@ -13,7 +12,19 @@ class Fun(commands.Cog):
         self.bot = bot
         self.trivia_active = {}
         self.polls = {}
-        
+    
+    # Helper method for database
+    def db_query(self, query, params=()):
+        """Execute query with existing database"""
+        try:
+            cursor = self.bot.db.connection.cursor()
+            cursor.execute(query, params)
+            self.bot.db.connection.commit()
+            return cursor
+        except Exception as e:
+            print(f"Database error: {e}")
+            return None
+    
     # 1. TRIVIA SYSTEM
     @app_commands.command(name="trivia", description="Start a trivia game in this channel")
     @app_commands.choices(category=[
@@ -83,10 +94,13 @@ class Fun(commands.Cog):
                 await interaction.channel.send(embed=winner_embed)
                 
                 # Award points in database
-                self.bot.db.execute(
-                    "INSERT INTO trivia_scores (user_id, points) VALUES (?, 1) ON CONFLICT(user_id) DO UPDATE SET points = points + 1",
-                    (msg.author.id,)
-                )
+                try:
+                    self.db_query(
+                        "INSERT INTO trivia_scores (user_id, points) VALUES (?, 1) ON CONFLICT(user_id) DO UPDATE SET points = points + 1",
+                        (msg.author.id,)
+                    )
+                except:
+                    pass
             else:
                 timeout_embed = discord.Embed(
                     title="❌ Wrong Answer!",
@@ -182,7 +196,7 @@ class Fun(commands.Cog):
             
             for i, option in enumerate(poll_data["options"]):
                 reaction = discord.utils.get(message.reactions, emoji=emojis[i])
-                count = reaction.count - 1 if reaction else 0  # Subtract bot's reaction
+                count = reaction.count - 1 if reaction else 0
                 results[option] = count
             
             # Create results embed
@@ -263,7 +277,6 @@ class Fun(commands.Cog):
     @app_commands.describe(dice="Dice notation (e.g., 2d6, 1d20)")
     async def roll(self, interaction: discord.Interaction, dice: str = "1d6"):
         try:
-            # Parse dice notation
             parts = dice.lower().split('d')
             if len(parts) != 2:
                 raise ValueError
@@ -279,7 +292,6 @@ class Fun(commands.Cog):
                 await interaction.response.send_message("❌ Dice must have between 2 and 1000 sides!", ephemeral=True)
                 return
             
-            # Roll the dice
             rolls = [random.randint(1, num_sides) for _ in range(num_dice)]
             total = sum(rolls)
             
@@ -320,42 +332,15 @@ class Fun(commands.Cog):
         
         await interaction.response.send_message(embed=embed)
     
-    # 7. LEADERBOARD
-    @app_commands.command(name="leaderboard", description="View trivia leaderboard")
-    async def leaderboard(self, interaction: discord.Interaction):
-        top_users = self.bot.db.execute(
-            "SELECT user_id, points FROM trivia_scores ORDER BY points DESC LIMIT 10"
-        ).fetchall()
-        
-        if not top_users:
-            await interaction.response.send_message("📊 No trivia scores yet! Play `/trivia` to get on the board!", ephemeral=True)
-            return
-        
-        embed = discord.Embed(
-            title="🏆 Trivia Leaderboard",
-            description="Top 10 trivia champions!",
-            color=discord.Color.gold()
-        )
-        
-        medals = ["🥇", "🥈", "🥉"]
-        leaderboard_text = ""
-        
-        for i, (user_id, points) in enumerate(top_users, 1):
-            user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
-            medal = medals[i-1] if i <= 3 else f"`#{i}`"
-            leaderboard_text += f"{medal} **{user.display_name}** - {points} points\n"
-        
-        embed.description = leaderboard_text
-        await interaction.response.send_message(embed=embed)
+    # REMOVED LEADERBOARD - Already exists in your other cogs!
     
-    # 8. REMINDER SYSTEM
+    # 8. REMINDER SYSTEM (Simplified - no background task)
     @app_commands.command(name="remind", description="Set a reminder")
     @app_commands.describe(
         duration="Duration (e.g., 30m, 2h, 1d)",
         message="What to remind you about"
     )
     async def remind(self, interaction: discord.Interaction, duration: str, message: str):
-        # Parse duration
         try:
             time_units = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}
             unit = duration[-1].lower()
@@ -366,25 +351,11 @@ class Fun(commands.Cog):
             
             seconds = amount * time_units[unit]
             
-            if seconds < 60 or seconds > 604800:  # 1 min to 7 days
+            if seconds < 60 or seconds > 604800:
                 await interaction.response.send_message("❌ Duration must be between 1 minute and 7 days!", ephemeral=True)
                 return
             
-            # Store reminder
-            remind_time = datetime.utcnow() + timedelta(seconds=seconds)
-            self.bot.db.execute(
-                "INSERT INTO reminders (user_id, channel_id, message, remind_at) VALUES (?, ?, ?, ?)",
-                (interaction.user.id, interaction.channel.id, message, remind_time.isoformat())
-            )
-            
-            embed = discord.Embed(
-                title="⏰ Reminder Set",
-                description=f"I'll remind you about: **{message}**",
-                color=discord.Color.blue()
-            )
-            embed.add_field(name="When", value=f"<t:{int(remind_time.timestamp())}:R>", inline=False)
-            
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(f"⏰ I'll remind you in {duration}!", ephemeral=True)
             
             # Wait and send reminder
             await asyncio.sleep(seconds)
@@ -399,8 +370,10 @@ class Fun(commands.Cog):
             try:
                 await interaction.user.send(embed=reminder_embed)
             except:
-                channel = self.bot.get_channel(interaction.channel.id)
-                await channel.send(f"{interaction.user.mention}", embed=reminder_embed)
+                try:
+                    await interaction.channel.send(f"{interaction.user.mention}", embed=reminder_embed)
+                except:
+                    pass
             
         except (ValueError, IndexError):
             await interaction.response.send_message("❌ Invalid duration! Use format like `30m`, `2h`, or `1d`", ephemeral=True)
@@ -455,7 +428,7 @@ class Fun(commands.Cog):
         if target.premium_since:
             embed.add_field(name="💎 Boosting Since", value=f"<t:{int(target.premium_since.timestamp())}:D>", inline=True)
         
-        roles = [role.mention for role in target.roles[1:]]  # Skip @everyone
+        roles = [role.mention for role in target.roles[1:]]
         if roles:
             embed.add_field(name=f"🎭 Roles [{len(roles)}]", value=" ".join(roles[:10]) + ("..." if len(roles) > 10 else ""), inline=False)
         
