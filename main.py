@@ -30,6 +30,7 @@ bot = KronozCafe()
 
 @bot.event
 async def on_ready():
+    print("🌟 All slash commands synced!")
     print(f"✅ {bot.user} is online!")
     await bot.change_presence(activity=discord.Activity(
         type=discord.ActivityType.watching, 
